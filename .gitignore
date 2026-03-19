@@ -1,0 +1,32 @@
+# 构建目录
+build/
+out/
+
+# VS 本地配置（保留 launch.vs.json）
+.vs/
+!.vs/launch.vs.json
+
+# CMake 缓存
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# 编译产物
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+
+# assets 下的 .obj 是 3D 模型，不是编译产物，需要保留
+!assets/**/*.obj
+
+# 已编译的着色器（由 glslc 生成，源文件在 shaders/）
+shaders/*.spv
+
+# 系统文件
+.DS_Store
+Thumbs.db
