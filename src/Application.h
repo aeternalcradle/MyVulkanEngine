@@ -19,8 +19,12 @@ private:
     SwapChain      swapChain;
     Pipeline       pipeline;
     Renderer       renderer;
+
     TextureManager textureMgr;
+    TextureManager textureMgr2;
     MeshLoader     mesh;
+    MeshLoader     mesh2;
+    MeshLoader     mesh3;
 
     void init();
     void mainLoop();

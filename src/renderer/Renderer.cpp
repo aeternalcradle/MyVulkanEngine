@@ -7,15 +7,15 @@
 #include "core/Window.h"
 
 #include <stdexcept>
-#include <chrono>
 #include <array>
 
-void Renderer::init(VulkanContext& ctx, SwapChain& swapChain,
-                    Pipeline& pipeline, TextureManager& textureMgr)
+void Renderer::init(VulkanContext& ctx, SwapChain& /*swapChain*/,
+                    Pipeline& pipeline,
+                    const std::vector<TextureManager*>& textures)
 {
     createUniformBuffers(ctx);
-    createDescriptorPool(ctx);
-    createDescriptorSets(ctx, pipeline, textureMgr);
+    createDescriptorPool(ctx, static_cast<uint32_t>(textures.size()));
+    createDescriptorSets(ctx, pipeline, textures);
     createCommandBuffers(ctx);
     createSyncObjects(ctx);
 }
@@ -32,7 +32,8 @@ void Renderer::destroy(VulkanContext& ctx) {
 }
 
 void Renderer::drawFrame(VulkanContext& ctx, Window& window,
-                         SwapChain& swapChain, Pipeline& pipeline, MeshLoader& mesh)
+                         SwapChain& swapChain, Pipeline& pipeline,
+                         const std::vector<RenderObject>& objects)
 {
     vkWaitForFences(ctx.device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -54,7 +55,7 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
 
     vkResetFences(ctx.device, 1, &inFlightFences[currentFrame]);
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
-    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, swapChain, pipeline, mesh);
+    recordCommandBuffer(commandBuffers[currentFrame], imageIndex, swapChain, pipeline, objects);
 
     VkSemaphore          waitSemaphores[]   = { imageAvailableSemaphores[currentFrame] };
     VkPipelineStageFlags waitStages[]       = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -110,61 +111,71 @@ void Renderer::createUniformBuffers(VulkanContext& ctx) {
     }
 }
 
-void Renderer::createDescriptorPool(VulkanContext& ctx) {
+void Renderer::createDescriptorPool(VulkanContext& ctx, uint32_t numTextures) {
+    // 每个纹理每帧需要一个描述符集
+    uint32_t totalSets = numTextures * static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
-    poolSizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) };
-    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) };
+    poolSizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         totalSets };
+    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, totalSets };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes    = poolSizes.data();
-    poolInfo.maxSets       = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+    poolInfo.maxSets       = totalSets;
 
     if (vkCreateDescriptorPool(ctx.device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
         throw std::runtime_error("failed to create descriptor pool!");
 }
 
-void Renderer::createDescriptorSets(VulkanContext& ctx, Pipeline& pipeline, TextureManager& textureMgr) {
-    std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, pipeline.descriptorSetLayout);
+void Renderer::createDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
+                                    const std::vector<TextureManager*>& textures)
+{
+    uint32_t numTextures = static_cast<uint32_t>(textures.size());
+    objectDescriptorSets.resize(numTextures);
 
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool     = descriptorPool;
-    allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-    allocInfo.pSetLayouts        = layouts.data();
+    for (uint32_t t = 0; t < numTextures; t++) {
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, pipeline.descriptorSetLayout);
 
-    descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-    if (vkAllocateDescriptorSets(ctx.device, &allocInfo, descriptorSets.data()) != VK_SUCCESS)
-        throw std::runtime_error("failed to allocate descriptor sets!");
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool     = descriptorPool;
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.pSetLayouts        = layouts.data();
 
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = uniformBuffers[i];
-        bufferInfo.offset = 0;
-        bufferInfo.range  = sizeof(UniformBufferObject);
+        objectDescriptorSets[t].resize(MAX_FRAMES_IN_FLIGHT);
+        if (vkAllocateDescriptorSets(ctx.device, &allocInfo, objectDescriptorSets[t].data()) != VK_SUCCESS)
+            throw std::runtime_error("failed to allocate descriptor sets!");
 
-        VkDescriptorImageInfo imageInfo{};
-        imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView   = textureMgr.textureImageView;
-        imageInfo.sampler     = textureMgr.textureSampler;
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            VkDescriptorBufferInfo bufferInfo{};
+            bufferInfo.buffer = uniformBuffers[i];
+            bufferInfo.offset = 0;
+            bufferInfo.range  = sizeof(UniformBufferObject);
 
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet          = descriptorSets[i];
-        writes[0].dstBinding      = 0;
-        writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo     = &bufferInfo;
+            VkDescriptorImageInfo imageInfo{};
+            imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfo.imageView   = textures[t]->textureImageView;
+            imageInfo.sampler     = textures[t]->textureSampler;
 
-        writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet          = descriptorSets[i];
-        writes[1].dstBinding      = 1;
-        writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo      = &imageInfo;
+            std::array<VkWriteDescriptorSet, 2> writes{};
+            writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[0].dstSet          = objectDescriptorSets[t][i];
+            writes[0].dstBinding      = 0;
+            writes[0].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            writes[0].descriptorCount = 1;
+            writes[0].pBufferInfo     = &bufferInfo;
 
-        vkUpdateDescriptorSets(ctx.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+            writes[1].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[1].dstSet          = objectDescriptorSets[t][i];
+            writes[1].dstBinding      = 1;
+            writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[1].descriptorCount = 1;
+            writes[1].pImageInfo      = &imageInfo;
+
+            vkUpdateDescriptorSets(ctx.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        }
     }
 }
 
@@ -202,23 +213,25 @@ void Renderer::createSyncObjects(VulkanContext& ctx) {
 }
 
 void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage) {
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    auto  currentTime = std::chrono::high_resolution_clock::now();
-    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+    // 窗口最小化时 extent 为 0，跳过以避免 glm::perspective 断言
+    if (swapChain.extent.width == 0 || swapChain.extent.height == 0) return;
 
+    // UBO 只存 view + proj，model 矩阵通过 push constant 按物体传入
     UniformBufferObject ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view  = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj  = glm::perspective(glm::radians(45.0f),
-                                  swapChain.extent.width / (float)swapChain.extent.height,
-                                  0.1f, 10.0f);
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+                           glm::vec3(0.0f, 0.0f, 0.0f),
+                           glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(glm::radians(45.0f),
+                                swapChain.extent.width / (float)swapChain.extent.height,
+                                0.1f, 10.0f);
     ubo.proj[1][1] *= -1;
 
     memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
 
 void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
-                                   SwapChain& swapChain, Pipeline& pipeline, MeshLoader& mesh)
+                                   SwapChain& swapChain, Pipeline& pipeline,
+                                   const std::vector<RenderObject>& objects)
 {
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -251,14 +264,28 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
     VkRect2D scissor{{0, 0}, swapChain.extent};
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    VkBuffer     vertexBuffers[] = { mesh.vertexBuffer };
-    VkDeviceSize offsets[]       = { 0 };
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, mesh.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline.pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+    // 依次绘制每个物体
+    for (const auto& obj : objects) {
+        // 绑定该物体的顶点/索引缓冲
+        VkBuffer     vertexBuffers[] = { obj.mesh->vertexBuffer };
+        VkDeviceSize offsets[]       = { 0 };
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+        vkCmdBindIndexBuffer(commandBuffer, obj.mesh->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
+        // 绑定该物体对应纹理的描述符集
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline.pipelineLayout, 0, 1,
+                                &objectDescriptorSets[obj.textureIndex][currentFrame],
+                                0, nullptr);
+
+        // 通过 push constant 传入该物体的模型矩阵
+        PushConstants pc{ obj.transform };
+        vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
+        vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(obj.mesh->indices.size()), 1, 0, 0, 0);
+    }
+
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)

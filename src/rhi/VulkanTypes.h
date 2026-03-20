@@ -19,8 +19,10 @@ inline constexpr int      MAX_FRAMES_IN_FLIGHT = 2;
 inline constexpr uint32_t WIDTH                = 800;
 inline constexpr uint32_t HEIGHT               = 600;
 
-inline const std::string MODEL_PATH   = "assets/models/viking_room.obj";
-inline const std::string TEXTURE_PATH = "assets/textures/viking_room.png";
+inline const std::string MODEL_PATH    = "assets/models/viking_room.obj";
+inline const std::string TEXTURE_PATH  = "assets/textures/viking_room.png";
+inline const std::string MODEL_PATH_2  = "assets/models/viking_room.obj";
+inline const std::string TEXTURE_PATH_2 = "assets/textures/viking_room.png";
 
 #ifdef NDEBUG
 inline constexpr bool enableValidationLayers = false;
@@ -99,8 +101,13 @@ namespace std {
     };
 }
 
+// 每帧共享的视图/投影矩阵，存入 UBO
 struct UniformBufferObject {
-    alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+};
+
+// 每个物体独立的模型矩阵，通过 push constant 传入，避免额外 UBO 开销
+struct PushConstants {
+    glm::mat4 model;
 };
