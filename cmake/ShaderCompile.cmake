@@ -14,11 +14,12 @@ function(compile_shaders TARGET GLSL_FILES OUTPUT_DIR)
     set(SPIRV_FILES "")
 
     foreach(GLSL ${GLSL_FILES})
-        # shader.vert -> vert.spv, shader.frag -> frag.spv
+        # shader.vert -> shader_vert.spv, shadow_depth.vert -> shadow_depth_vert.spv
+        get_filename_component(FILE_NAME_WE ${GLSL} NAME_WE)
         get_filename_component(FILE_EXT ${GLSL} LAST_EXT)
-        string(SUBSTRING ${FILE_EXT} 1 -1 STAGE_NAME)   # 去掉开头的点
+        string(SUBSTRING ${FILE_EXT} 1 -1 STAGE_NAME)
         get_filename_component(FILE_NAME ${GLSL} NAME)
-        set(SPIRV "${OUTPUT_DIR}/${STAGE_NAME}.spv")
+        set(SPIRV "${OUTPUT_DIR}/${FILE_NAME_WE}_${STAGE_NAME}.spv")
 
         add_custom_command(
             OUTPUT  ${SPIRV}

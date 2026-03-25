@@ -18,10 +18,12 @@ public:
     VkDeviceMemory indexBufferMemory  = VK_NULL_HANDLE;
 
     void loadMesh(VulkanContext& ctx, const std::string& modelPath);
+    void createPlane(VulkanContext& ctx, float size = 10.0f);
     void destroy(VulkanContext& ctx);
 
 private:
     void loadModel(const std::string& modelPath);
+    void computeSmoothNormals();
     void createVertexBuffer(VulkanContext& ctx);
     void createIndexBuffer(VulkanContext& ctx);
 };

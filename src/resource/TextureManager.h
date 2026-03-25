@@ -14,6 +14,7 @@ public:
     VkSampler      textureSampler     = VK_NULL_HANDLE;
 
     void loadTexture(VulkanContext& ctx, const std::string& path);
+    void createSolidColor(VulkanContext& ctx, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
     void destroy(VulkanContext& ctx);
 
 private:

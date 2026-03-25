@@ -8,7 +8,7 @@
 
 void Pipeline::create(VulkanContext& ctx, SwapChain& swapChain) {
     createRenderPass(ctx, swapChain.imageFormat);
-    createDescriptorSetLayout(ctx);
+    createDescriptorSetLayouts(ctx);
     createGraphicsPipeline(ctx, swapChain.extent);
 }
 
@@ -16,7 +16,8 @@ void Pipeline::destroy(VulkanContext& ctx) {
     vkDestroyPipeline(ctx.device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(ctx.device, pipelineLayout, nullptr);
     vkDestroyRenderPass(ctx.device, renderPass, nullptr);
-    vkDestroyDescriptorSetLayout(ctx.device, descriptorSetLayout, nullptr);
+    vkDestroyDescriptorSetLayout(ctx.device, materialSetLayout, nullptr);
+    vkDestroyDescriptorSetLayout(ctx.device, frameSetLayout, nullptr);
 }
 
 void Pipeline::createRenderPass(VulkanContext& ctx, VkFormat swapChainImageFormat) {
@@ -71,34 +72,48 @@ void Pipeline::createRenderPass(VulkanContext& ctx, VkFormat swapChainImageForma
         throw std::runtime_error("failed to create render pass!");
 }
 
-void Pipeline::createDescriptorSetLayout(VulkanContext& ctx) {
+void Pipeline::createDescriptorSetLayouts(VulkanContext& ctx) {
+    // --- Set 0 (per-frame): UBO + shadow map ---
     VkDescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding            = 0;
     uboBinding.descriptorCount    = 1;
     uboBinding.descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uboBinding.pImmutableSamplers = nullptr;
-    uboBinding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT;
+    uboBinding.stageFlags         = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkDescriptorSetLayoutBinding samplerBinding{};
-    samplerBinding.binding            = 1;
-    samplerBinding.descriptorCount    = 1;
-    samplerBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    samplerBinding.pImmutableSamplers = nullptr;
-    samplerBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutBinding shadowBinding{};
+    shadowBinding.binding            = 1;
+    shadowBinding.descriptorCount    = 1;
+    shadowBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    shadowBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboBinding, samplerBinding };
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings    = bindings.data();
+    std::array<VkDescriptorSetLayoutBinding, 2> frameBindings = { uboBinding, shadowBinding };
+    VkDescriptorSetLayoutCreateInfo frameLayoutInfo{};
+    frameLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    frameLayoutInfo.bindingCount = static_cast<uint32_t>(frameBindings.size());
+    frameLayoutInfo.pBindings    = frameBindings.data();
 
-    if (vkCreateDescriptorSetLayout(ctx.device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS)
-        throw std::runtime_error("failed to create descriptor set layout!");
+    if (vkCreateDescriptorSetLayout(ctx.device, &frameLayoutInfo, nullptr, &frameSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("failed to create frame descriptor set layout!");
+
+    // --- Set 1 (per-material): diffuse texture ---
+    VkDescriptorSetLayoutBinding texBinding{};
+    texBinding.binding            = 0;
+    texBinding.descriptorCount    = 1;
+    texBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    texBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo matLayoutInfo{};
+    matLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    matLayoutInfo.bindingCount = 1;
+    matLayoutInfo.pBindings    = &texBinding;
+
+    if (vkCreateDescriptorSetLayout(ctx.device, &matLayoutInfo, nullptr, &materialSetLayout) != VK_SUCCESS)
+        throw std::runtime_error("failed to create material descriptor set layout!");
 }
 
 void Pipeline::createGraphicsPipeline(VulkanContext& ctx, VkExtent2D swapChainExtent) {
-    auto vertCode = readFile("shaders/vert.spv");
-    auto fragCode = readFile("shaders/frag.spv");
+    auto vertCode = readFile("shaders/shader_vert.spv");
+    auto fragCode = readFile("shaders/shader_frag.spv");
 
     VkShaderModule vertModule = createShaderModule(ctx, vertCode);
     VkShaderModule fragModule = createShaderModule(ctx, fragCode);
@@ -173,10 +188,12 @@ void Pipeline::createGraphicsPipeline(VulkanContext& ctx, VkExtent2D swapChainEx
     pushRange.offset     = 0;
     pushRange.size       = sizeof(PushConstants);
 
+    VkDescriptorSetLayout setLayouts[] = { frameSetLayout, materialSetLayout };
+
     VkPipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layoutInfo.setLayoutCount         = 1;
-    layoutInfo.pSetLayouts            = &descriptorSetLayout;
+    layoutInfo.setLayoutCount         = 2;
+    layoutInfo.pSetLayouts            = setLayouts;
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges    = &pushRange;
 

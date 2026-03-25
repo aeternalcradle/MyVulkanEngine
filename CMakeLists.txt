@@ -48,6 +48,7 @@ set(SOURCES
     src/rhi/Image.cpp
     src/renderer/Pipeline.cpp
     src/renderer/Renderer.cpp
+    src/renderer/ShadowMap.cpp
     src/resource/TextureManager.cpp
     src/resource/MeshLoader.cpp
 )

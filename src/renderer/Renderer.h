@@ -6,18 +6,17 @@
 class VulkanContext;
 class SwapChain;
 class Pipeline;
+class ShadowMap;
 class TextureManager;
 class MeshLoader;
 class Window;
 
-// 每个需要绘制的物体：网格 + 纹理索引 + 模型矩阵（每帧传入）
 struct RenderObject {
     MeshLoader*  mesh;
-    uint32_t     textureIndex;  // 对应 init() 传入的 textures 数组下标
+    uint32_t     textureIndex;
     glm::mat4    transform;
 };
 
-// 管理帧同步、命令缓冲、UBO、描述符集及主渲染循环
 class Renderer {
 public:
     std::vector<VkBuffer>        uniformBuffers;
@@ -32,29 +31,33 @@ public:
     std::vector<VkFence>         inFlightFences;
     uint32_t                     currentFrame = 0;
 
-    // textures[i] 对应 RenderObject::textureIndex == i
     void init(VulkanContext& ctx, SwapChain& swapChain,
-              Pipeline& pipeline,
+              Pipeline& pipeline, ShadowMap& shadowMap,
               const std::vector<TextureManager*>& textures);
     void destroy(VulkanContext& ctx);
 
     void drawFrame(VulkanContext& ctx, Window& window,
                    SwapChain& swapChain, Pipeline& pipeline,
+                   ShadowMap& shadowMap,
                    const std::vector<RenderObject>& objects);
 
 private:
-    // [textureIndex][frameIndex]
-    std::vector<std::vector<VkDescriptorSet>> objectDescriptorSets;
+    // set 0: per-frame (UBO + shadow map) [frameIndex]
+    std::vector<VkDescriptorSet> frameDescriptorSets;
+    // set 1: per-material (diffuse texture) [textureIndex][frameIndex]
+    std::vector<std::vector<VkDescriptorSet>> materialDescriptorSets;
 
     void createUniformBuffers(VulkanContext& ctx);
     void createDescriptorPool(VulkanContext& ctx, uint32_t numTextures);
-    void createDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
-                              const std::vector<TextureManager*>& textures);
+    void createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline, ShadowMap& shadowMap);
+    void createMaterialDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
+                                      const std::vector<TextureManager*>& textures);
     void createCommandBuffers(VulkanContext& ctx);
     void createSyncObjects(VulkanContext& ctx);
 
     void updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
                              SwapChain& swapChain, Pipeline& pipeline,
+                             ShadowMap& shadowMap,
                              const std::vector<RenderObject>& objects);
 };

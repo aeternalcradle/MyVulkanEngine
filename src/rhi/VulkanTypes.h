@@ -67,8 +67,10 @@ struct SwapChainSupportDetails {
 
 struct Vertex {
     glm::vec3 pos;
+    glm::vec3 normal;
     glm::vec3 color;
     glm::vec2 texCoord;
+    
 
     static VkVertexInputBindingDescription getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription{};
@@ -78,16 +80,17 @@ struct Vertex {
         return bindingDescription;
     }
 
-    static std::array<VkVertexInputAttributeDescription, 3> getAttributeDescriptions() {
-        std::array<VkVertexInputAttributeDescription, 3> descs{};
+    static std::array<VkVertexInputAttributeDescription, 4> getAttributeDescriptions() {
+        std::array<VkVertexInputAttributeDescription, 4> descs{};
         descs[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)};
-        descs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)};
-        descs[2] = {2, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(Vertex, texCoord)};
+        descs[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)};
+        descs[2] = {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)};
+        descs[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(Vertex, texCoord)};
         return descs;
     }
 
     bool operator==(const Vertex& other) const {
-        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+        return pos == other.pos && normal == other.normal && color == other.color && texCoord == other.texCoord;
     }
 };
 
@@ -95,16 +98,22 @@ namespace std {
     template<> struct hash<Vertex> {
         size_t operator()(Vertex const& vertex) const {
             return ((hash<glm::vec3>()(vertex.pos) ^
+                    (hash<glm::vec3>()(vertex.normal) << 1) ^
                     (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
-                   (hash<glm::vec2>()(vertex.texCoord) << 1);
+                (hash<glm::vec2>()(vertex.texCoord) << 1);
         }
     };
 }
 
-// 每帧共享的视图/投影矩阵，存入 UBO
+// 每帧共享的全局数据，存入 UBO（注意与 GLSL std140 对齐一致）
 struct UniformBufferObject {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+    alignas(16) glm::mat4 lightViewProj;
+    alignas(16) glm::vec3 lightDir;
+    float ambient;                          // 紧跟 vec3 后 4 字节，与 std140 一致
+    alignas(16) glm::vec3 lightColor;
+    float lightSize;                        // 紧跟 vec3 后 4 字节，PCSS 光源尺寸（世界空间）
 };
 
 // 每个物体独立的模型矩阵，通过 push constant 传入，避免额外 UBO 开销
