@@ -16,7 +16,7 @@ public:
     std::vector<VkFramebuffer> framebuffers;
 
     VkImage        depthImage       = VK_NULL_HANDLE;
-    VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
+    VmaAllocation depthImageAlloc = VK_NULL_HANDLE;
     VkImageView    depthImageView   = VK_NULL_HANDLE;
 
     void create(VulkanContext& ctx, GLFWwindow* window);

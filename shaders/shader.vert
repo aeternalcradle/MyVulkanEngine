@@ -8,10 +8,13 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     float ambient;
     vec3 lightColor;
     float lightSize;
+    vec3 camPos;
 } ubo;
 
 layout(push_constant) uniform PushConstants {
-    mat4 model;
+    mat4  model;
+    float metallic;
+    float roughness;
 } push;
 
 layout(location = 0) in vec3 inPosition;
@@ -23,14 +26,16 @@ layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec2 fragTexCoord;
 layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec4 fragPosLightSpace;
+layout(location = 4) out vec3 fragWorldPos;
 
 void main() {
     vec4 worldPos = push.model * vec4(inPosition, 1.0);
     gl_Position = ubo.proj * ubo.view * worldPos;
 
     mat3 normalMatrix = transpose(inverse(mat3(push.model)));
-    fragNormal   = normalize(normalMatrix * inNormal);
-    fragColor    = inColor;
-    fragTexCoord = inTexCoord;
+    fragNormal        = normalize(normalMatrix * inNormal);
+    fragColor         = inColor;
+    fragTexCoord      = inTexCoord;
     fragPosLightSpace = ubo.lightViewProj * worldPos;
+    fragWorldPos      = worldPos.xyz;
 }

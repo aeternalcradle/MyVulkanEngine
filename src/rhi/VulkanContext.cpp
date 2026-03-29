@@ -39,11 +39,13 @@ void VulkanContext::init(GLFWwindow* window) {
     createSurface(window);
     pickPhysicalDevice();
     createLogicalDevice();
+    createAllocator();
     createCommandPool();
 }
 
 void VulkanContext::destroy() {
     vkDestroyCommandPool(device, commandPool, nullptr);
+    vmaDestroyAllocator(allocator);
     vkDestroyDevice(device, nullptr);
     if (enableValidationLayers)
         DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -109,7 +111,7 @@ VkFormat VulkanContext::findDepthFormat() const {
 void VulkanContext::createBuffer(
     VkDeviceSize size, VkBufferUsageFlags usage,
     VkMemoryPropertyFlags properties,
-    VkBuffer& buffer, VkDeviceMemory& bufferMemory)
+    VkBuffer& buffer, VmaAllocation& allocation)
 {
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -117,21 +119,15 @@ void VulkanContext::createBuffer(
     bufferInfo.usage       = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS)
+    VmaAllocationCreateInfo allocCI{};
+    allocCI.usage         = VMA_MEMORY_USAGE_AUTO;
+    allocCI.requiredFlags = properties;
+    if (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+        allocCI.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    if (vmaCreateBuffer(allocator, &bufferInfo, &allocCI,
+                        &buffer, &allocation, nullptr) != VK_SUCCESS)
         throw std::runtime_error("failed to create buffer!");
-
-    VkMemoryRequirements memReqs;
-    vkGetBufferMemoryRequirements(device, buffer, &memReqs);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize  = memReqs.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits, properties);
-
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS)
-        throw std::runtime_error("failed to allocate buffer memory!");
-
-    vkBindBufferMemory(device, buffer, bufferMemory, 0);
 }
 
 VkCommandBuffer VulkanContext::beginSingleTimeCommands() {
@@ -300,6 +296,17 @@ void VulkanContext::createCommandPool() {
 
     if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS)
         throw std::runtime_error("failed to create graphics command pool!");
+}
+
+void VulkanContext::createAllocator() {
+    VmaAllocatorCreateInfo ci{};
+    ci.physicalDevice   = physicalDevice;
+    ci.device           = device;
+    ci.instance         = instance;
+    ci.vulkanApiVersion = VK_API_VERSION_1_0;
+
+    if (vmaCreateAllocator(&ci, &allocator) != VK_SUCCESS)
+        throw std::runtime_error("failed to create VMA allocator!");
 }
 
 bool VulkanContext::isDeviceSuitable(VkPhysicalDevice dev) const {

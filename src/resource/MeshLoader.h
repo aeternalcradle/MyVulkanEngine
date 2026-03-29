@@ -13,12 +13,14 @@ public:
     std::vector<uint32_t> indices;
 
     VkBuffer       vertexBuffer       = VK_NULL_HANDLE;
-    VkDeviceMemory vertexBufferMemory = VK_NULL_HANDLE;
+    VmaAllocation vertexBufferAlloc = VK_NULL_HANDLE;
     VkBuffer       indexBuffer        = VK_NULL_HANDLE;
-    VkDeviceMemory indexBufferMemory  = VK_NULL_HANDLE;
+    VmaAllocation indexBufferAlloc  = VK_NULL_HANDLE;
 
     void loadMesh(VulkanContext& ctx, const std::string& modelPath);
     void createPlane(VulkanContext& ctx, float size = 10.0f);
+    void createSphere(VulkanContext& ctx, float radius = 0.5f,
+                      uint32_t sectors = 64, uint32_t stacks = 32);
     void destroy(VulkanContext& ctx);
 
 private:

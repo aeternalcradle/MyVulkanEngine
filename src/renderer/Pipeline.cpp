@@ -73,7 +73,7 @@ void Pipeline::createRenderPass(VulkanContext& ctx, VkFormat swapChainImageForma
 }
 
 void Pipeline::createDescriptorSetLayouts(VulkanContext& ctx) {
-    // --- Set 0 (per-frame): UBO + shadow map ---
+    // --- Set 0 (per-frame): UBO + shadow map + IBL textures ---
     VkDescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding            = 0;
     uboBinding.descriptorCount    = 1;
@@ -86,7 +86,27 @@ void Pipeline::createDescriptorSetLayouts(VulkanContext& ctx) {
     shadowBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     shadowBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding, 2> frameBindings = { uboBinding, shadowBinding };
+    VkDescriptorSetLayoutBinding irradianceBinding{};
+    irradianceBinding.binding            = 2;
+    irradianceBinding.descriptorCount    = 1;
+    irradianceBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    irradianceBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutBinding prefilterBinding{};
+    prefilterBinding.binding            = 3;
+    prefilterBinding.descriptorCount    = 1;
+    prefilterBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    prefilterBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutBinding brdfLutBinding{};
+    brdfLutBinding.binding            = 4;
+    brdfLutBinding.descriptorCount    = 1;
+    brdfLutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    brdfLutBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding, 5> frameBindings = {
+        uboBinding, shadowBinding, irradianceBinding, prefilterBinding, brdfLutBinding
+    };
     VkDescriptorSetLayoutCreateInfo frameLayoutInfo{};
     frameLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     frameLayoutInfo.bindingCount = static_cast<uint32_t>(frameBindings.size());
@@ -184,7 +204,7 @@ void Pipeline::createGraphicsPipeline(VulkanContext& ctx, VkExtent2D swapChainEx
     dynamicState.pDynamicStates    = dynamicStates.data();
 
     VkPushConstantRange pushRange{};
-    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pushRange.offset     = 0;
     pushRange.size       = sizeof(PushConstants);
 

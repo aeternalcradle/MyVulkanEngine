@@ -15,6 +15,7 @@ public:
     VkQueue                  graphicsQueue   = VK_NULL_HANDLE;
     VkQueue                  presentQueue    = VK_NULL_HANDLE;
     VkCommandPool            commandPool     = VK_NULL_HANDLE;
+    VmaAllocator             allocator       = VK_NULL_HANDLE;
 
     void init(GLFWwindow* window);
     void destroy();
@@ -29,7 +30,7 @@ public:
 
     void            createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                  VkMemoryPropertyFlags properties,
-                                 VkBuffer& buffer, VkDeviceMemory& bufferMemory);
+                                 VkBuffer& buffer, VmaAllocation& allocation);
     void            copyBuffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
     VkCommandBuffer beginSingleTimeCommands();
     void            endSingleTimeCommands(VkCommandBuffer commandBuffer);
@@ -41,6 +42,7 @@ private:
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createCommandPool();
+    void createAllocator();
 
     bool isDeviceSuitable(VkPhysicalDevice dev) const;
     bool checkDeviceExtensionSupport(VkPhysicalDevice dev) const;

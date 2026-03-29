@@ -9,7 +9,7 @@ class VulkanContext;
 class TextureManager {
 public:
     VkImage        textureImage       = VK_NULL_HANDLE;
-    VkDeviceMemory textureImageMemory = VK_NULL_HANDLE;
+    VmaAllocation textureImageAlloc = VK_NULL_HANDLE;
     VkImageView    textureImageView   = VK_NULL_HANDLE;
     VkSampler      textureSampler     = VK_NULL_HANDLE;
 

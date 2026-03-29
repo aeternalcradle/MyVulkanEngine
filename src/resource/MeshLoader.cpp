@@ -31,11 +31,59 @@ void MeshLoader::createPlane(VulkanContext& ctx, float size) {
     createIndexBuffer(ctx);
 }
 
+void MeshLoader::createSphere(VulkanContext& ctx, float radius,
+                              uint32_t sectors, uint32_t stacks) {
+    vertices.clear();
+    indices.clear();
+
+    const float PI = 3.14159265358979323846f;
+
+    for (uint32_t i = 0; i <= stacks; ++i) {
+        float stackAngle = PI / 2.0f - static_cast<float>(i) * PI / stacks;
+        float xy = radius * cosf(stackAngle);
+        float z  = radius * sinf(stackAngle);
+
+        for (uint32_t j = 0; j <= sectors; ++j) {
+            float sectorAngle = static_cast<float>(j) * 2.0f * PI / sectors;
+
+            float x = xy * cosf(sectorAngle);
+            float y = xy * sinf(sectorAngle);
+
+            Vertex v{};
+            v.pos    = { x, y, z };
+            v.normal = glm::normalize(glm::vec3(x, y, z));
+            v.color  = { 1.0f, 1.0f, 1.0f };
+            v.texCoord = { static_cast<float>(j) / sectors,
+                           static_cast<float>(i) / stacks };
+            vertices.push_back(v);
+        }
+    }
+
+    for (uint32_t i = 0; i < stacks; ++i) {
+        for (uint32_t j = 0; j < sectors; ++j) {
+            uint32_t first  = i * (sectors + 1) + j;
+            uint32_t second = first + sectors + 1;
+
+            if (i != 0) {
+                indices.push_back(first);
+                indices.push_back(second);
+                indices.push_back(first + 1);
+            }
+            if (i != stacks - 1) {
+                indices.push_back(first + 1);
+                indices.push_back(second);
+                indices.push_back(second + 1);
+            }
+        }
+    }
+
+    createVertexBuffer(ctx);
+    createIndexBuffer(ctx);
+}
+
 void MeshLoader::destroy(VulkanContext& ctx) {
-    vkDestroyBuffer(ctx.device, indexBuffer, nullptr);
-    vkFreeMemory(ctx.device, indexBufferMemory, nullptr);
-    vkDestroyBuffer(ctx.device, vertexBuffer, nullptr);
-    vkFreeMemory(ctx.device, vertexBufferMemory, nullptr);
+    vmaDestroyBuffer(ctx.allocator, indexBuffer, indexBufferAlloc);
+    vmaDestroyBuffer(ctx.allocator, vertexBuffer, vertexBufferAlloc);
 }
 
 void MeshLoader::computeSmoothNormals() {
@@ -156,47 +204,45 @@ void MeshLoader::loadModel(const std::string& modelPath) {
 void MeshLoader::createVertexBuffer(VulkanContext& ctx) {
     VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
-    VkBuffer       stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VkBuffer      stagingBuffer;
+    VmaAllocation stagingAlloc;
     ctx.createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuffer, stagingBufferMemory);
+                     stagingBuffer, stagingAlloc);
 
     void* data;
-    vkMapMemory(ctx.device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    vmaMapMemory(ctx.allocator, stagingAlloc, &data);
     memcpy(data, vertices.data(), (size_t)bufferSize);
-    vkUnmapMemory(ctx.device, stagingBufferMemory);
+    vmaUnmapMemory(ctx.allocator, stagingAlloc);
 
     ctx.createBuffer(bufferSize,
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                     vertexBuffer, vertexBufferMemory);
+                     vertexBuffer, vertexBufferAlloc);
 
     ctx.copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-    vkDestroyBuffer(ctx.device, stagingBuffer, nullptr);
-    vkFreeMemory(ctx.device, stagingBufferMemory, nullptr);
+    vmaDestroyBuffer(ctx.allocator, stagingBuffer, stagingAlloc);
 }
 
 void MeshLoader::createIndexBuffer(VulkanContext& ctx) {
     VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
 
-    VkBuffer       stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VkBuffer      stagingBuffer;
+    VmaAllocation stagingAlloc;
     ctx.createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuffer, stagingBufferMemory);
+                     stagingBuffer, stagingAlloc);
 
     void* data;
-    vkMapMemory(ctx.device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    vmaMapMemory(ctx.allocator, stagingAlloc, &data);
     memcpy(data, indices.data(), (size_t)bufferSize);
-    vkUnmapMemory(ctx.device, stagingBufferMemory);
+    vmaUnmapMemory(ctx.allocator, stagingAlloc);
 
     ctx.createBuffer(bufferSize,
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                     indexBuffer, indexBufferMemory);
+                     indexBuffer, indexBufferAlloc);
 
     ctx.copyBuffer(stagingBuffer, indexBuffer, bufferSize);
-    vkDestroyBuffer(ctx.device, stagingBuffer, nullptr);
-    vkFreeMemory(ctx.device, stagingBufferMemory, nullptr);
+    vmaDestroyBuffer(ctx.allocator, stagingBuffer, stagingAlloc);
 }

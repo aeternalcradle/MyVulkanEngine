@@ -9,7 +9,7 @@ public:
     static constexpr uint32_t SHADOW_MAP_RESOLUTION = 2048;
 
     VkImage          depthImage          = VK_NULL_HANDLE;
-    VkDeviceMemory   depthImageMemory    = VK_NULL_HANDLE;
+    VmaAllocation    depthImageAlloc     = VK_NULL_HANDLE;
     VkImageView      depthImageView      = VK_NULL_HANDLE;
     VkSampler        sampler             = VK_NULL_HANDLE;
     VkRenderPass     renderPass          = VK_NULL_HANDLE;

@@ -6,12 +6,14 @@
 #include "renderer/Pipeline.h"
 #include "renderer/Renderer.h"
 #include "renderer/ShadowMap.h"
-#include "resource/TextureManager.h"
-#include "resource/MeshLoader.h"
+#include "renderer/IBLResources.h"
+#include "tests/Scene.h"
 
-// 顶层应用类，负责按正确顺序初始化和销毁所有子系统
+#include <memory>
+
 class Application {
 public:
+    explicit Application(std::unique_ptr<Scene> scene);
     void run();
 
 private:
@@ -20,15 +22,10 @@ private:
     SwapChain      swapChain;
     Pipeline       pipeline;
     ShadowMap      shadowMap;
+    IBLResources   iblResources;
     Renderer       renderer;
 
-    TextureManager textureMgr;
-    TextureManager textureMgr2;
-    TextureManager groundTexture;
-    MeshLoader     mesh;
-    MeshLoader     mesh2;
-    MeshLoader     mesh3;
-    MeshLoader     groundPlane;
+    std::unique_ptr<Scene> scene;
 
     void init();
     void mainLoop();

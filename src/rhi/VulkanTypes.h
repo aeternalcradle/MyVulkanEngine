@@ -15,6 +15,10 @@
 #include <array>
 #include <string>
 
+#define VMA_STATIC_VULKAN_FUNCTIONS 1
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 0
+#include <vk_mem_alloc.h>
+
 inline constexpr int      MAX_FRAMES_IN_FLIGHT = 2;
 inline constexpr uint32_t WIDTH                = 800;
 inline constexpr uint32_t HEIGHT               = 600;
@@ -111,12 +115,16 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
     alignas(16) glm::mat4 lightViewProj;
     alignas(16) glm::vec3 lightDir;
-    float ambient;                          // 紧跟 vec3 后 4 字节，与 std140 一致
+    float ambient;
     alignas(16) glm::vec3 lightColor;
-    float lightSize;                        // 紧跟 vec3 后 4 字节，PCSS 光源尺寸（世界空间）
+    float lightSize;
+    alignas(16) glm::vec3 camPos;
+    float _pad0;
 };
 
-// 每个物体独立的模型矩阵，通过 push constant 传入，避免额外 UBO 开销
+// 每个物体独立数据，通过 push constant 传入
 struct PushConstants {
     glm::mat4 model;
+    float metallic;
+    float roughness;
 };

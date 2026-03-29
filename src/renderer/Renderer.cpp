@@ -3,32 +3,37 @@
 #include "rhi/SwapChain.h"
 #include "renderer/Pipeline.h"
 #include "renderer/ShadowMap.h"
+#include "renderer/IBLResources.h"
 #include "resource/TextureManager.h"
 #include "resource/MeshLoader.h"
 #include "core/Window.h"
 
 #include <stdexcept>
 #include <array>
+#include <algorithm>
 
-void Renderer::init(VulkanContext& ctx, SwapChain& /*swapChain*/,
+void Renderer::init(VulkanContext& ctx, SwapChain& swapChain,
                     Pipeline& pipeline, ShadowMap& shadowMap,
+                    IBLResources& ibl,
                     const std::vector<TextureManager*>& textures)
 {
     createUniformBuffers(ctx);
     createDescriptorPool(ctx, static_cast<uint32_t>(textures.size()));
-    createFrameDescriptorSets(ctx, pipeline, shadowMap);
+    createFrameDescriptorSets(ctx, pipeline, shadowMap, ibl);
     createMaterialDescriptorSets(ctx, pipeline, textures);
     createCommandBuffers(ctx);
-    createSyncObjects(ctx);
+    uint32_t sci = static_cast<uint32_t>(swapChain.images.size());
+    createSyncObjects(ctx, std::max(1u, sci));
 }
 
 void Renderer::destroy(VulkanContext& ctx) {
+    for (VkSemaphore s : renderFinishedSemaphores)
+        vkDestroySemaphore(ctx.device, s, nullptr);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        vkDestroySemaphore(ctx.device, renderFinishedSemaphores[i], nullptr);
         vkDestroySemaphore(ctx.device, imageAvailableSemaphores[i], nullptr);
         vkDestroyFence(ctx.device, inFlightFences[i], nullptr);
-        vkDestroyBuffer(ctx.device, uniformBuffers[i], nullptr);
-        vkFreeMemory(ctx.device, uniformBuffersMemory[i], nullptr);
+        vmaUnmapMemory(ctx.allocator, uniformBuffersAlloc[i]);
+        vmaDestroyBuffer(ctx.allocator, uniformBuffers[i], uniformBuffersAlloc[i]);
     }
     vkDestroyDescriptorPool(ctx.device, descriptorPool, nullptr);
 }
@@ -36,7 +41,10 @@ void Renderer::destroy(VulkanContext& ctx) {
 void Renderer::drawFrame(VulkanContext& ctx, Window& window,
                          SwapChain& swapChain, Pipeline& pipeline,
                          ShadowMap& shadowMap,
-                         const std::vector<RenderObject>& objects)
+                         const std::vector<RenderObject>& objects,
+                         const glm::vec3& cameraPos,
+                         const glm::vec3& cameraTarget,
+                         float farPlane)
 {
     vkWaitForFences(ctx.device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -54,7 +62,7 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
         throw std::runtime_error("failed to acquire swap chain image!");
     }
 
-    updateUniformBuffer(swapChain, currentFrame);
+    updateUniformBuffer(swapChain, currentFrame, cameraPos, cameraTarget, farPlane);
 
     vkResetFences(ctx.device, 1, &inFlightFences[currentFrame]);
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
@@ -63,7 +71,7 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
 
     VkSemaphore          waitSemaphores[]   = { imageAvailableSemaphores[currentFrame] };
     VkPipelineStageFlags waitStages[]       = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    VkSemaphore          signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
+    VkSemaphore          signalSemaphores[] = { renderFinishedSemaphores[imageIndex] };
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -106,14 +114,14 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
 void Renderer::createUniformBuffers(VulkanContext& ctx) {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
     uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-    uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+    uniformBuffersAlloc.resize(MAX_FRAMES_IN_FLIGHT);
     uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         ctx.createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                         uniformBuffers[i], uniformBuffersMemory[i]);
-        vkMapMemory(ctx.device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
+                         uniformBuffers[i], uniformBuffersAlloc[i]);
+        vmaMapMemory(ctx.allocator, uniformBuffersAlloc[i], &uniformBuffersMapped[i]);
     }
 }
 
@@ -122,9 +130,11 @@ void Renderer::createDescriptorPool(VulkanContext& ctx, uint32_t numTextures) {
     uint32_t materialSets = numTextures * frameSets;
     uint32_t totalSets    = frameSets + materialSets;
 
+    // shadow(1) + irradiance(1) + prefilter(1) + brdfLut(1) = 4 samplers per frame set
+    // + 1 sampler per material set
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         frameSets };
-    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, frameSets + materialSets };
+    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * frameSets + materialSets };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -137,7 +147,7 @@ void Renderer::createDescriptorPool(VulkanContext& ctx, uint32_t numTextures) {
 }
 
 void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
-                                         ShadowMap& shadowMap)
+                                         ShadowMap& shadowMap, IBLResources& ibl)
 {
     std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, pipeline.frameSetLayout);
 
@@ -162,7 +172,22 @@ void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
         shadowInfo.imageView   = shadowMap.depthImageView;
         shadowInfo.sampler     = shadowMap.sampler;
 
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        VkDescriptorImageInfo irradianceInfo{};
+        irradianceInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        irradianceInfo.imageView   = ibl.irradianceView;
+        irradianceInfo.sampler     = ibl.cubemapSampler;
+
+        VkDescriptorImageInfo prefilterInfo{};
+        prefilterInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        prefilterInfo.imageView   = ibl.prefilteredView;
+        prefilterInfo.sampler     = ibl.cubemapSampler;
+
+        VkDescriptorImageInfo brdfLutInfo{};
+        brdfLutInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        brdfLutInfo.imageView   = ibl.brdfLutView;
+        brdfLutInfo.sampler     = ibl.brdfLutSampler;
+
+        std::array<VkWriteDescriptorSet, 5> writes{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet          = frameDescriptorSets[i];
         writes[0].dstBinding      = 0;
@@ -176,6 +201,27 @@ void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
         writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].descriptorCount = 1;
         writes[1].pImageInfo      = &shadowInfo;
+
+        writes[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet          = frameDescriptorSets[i];
+        writes[2].dstBinding      = 2;
+        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].descriptorCount = 1;
+        writes[2].pImageInfo      = &irradianceInfo;
+
+        writes[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[3].dstSet          = frameDescriptorSets[i];
+        writes[3].dstBinding      = 3;
+        writes[3].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[3].descriptorCount = 1;
+        writes[3].pImageInfo      = &prefilterInfo;
+
+        writes[4].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[4].dstSet          = frameDescriptorSets[i];
+        writes[4].dstBinding      = 4;
+        writes[4].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[4].descriptorCount = 1;
+        writes[4].pImageInfo      = &brdfLutInfo;
 
         vkUpdateDescriptorSets(ctx.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
@@ -232,9 +278,9 @@ void Renderer::createCommandBuffers(VulkanContext& ctx) {
         throw std::runtime_error("failed to allocate command buffers!");
 }
 
-void Renderer::createSyncObjects(VulkanContext& ctx) {
+void Renderer::createSyncObjects(VulkanContext& ctx, uint32_t swapChainImageCount) {
     imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-    renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+    renderFinishedSemaphores.resize(swapChainImageCount);
     inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -246,15 +292,21 @@ void Renderer::createSyncObjects(VulkanContext& ctx) {
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         if (vkCreateSemaphore(ctx.device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(ctx.device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS ||
             vkCreateFence(ctx.device, &fenceInfo, nullptr, &inFlightFences[i]) != VK_SUCCESS)
             throw std::runtime_error("failed to create synchronization objects for a frame!");
+    }
+    for (uint32_t i = 0; i < swapChainImageCount; i++) {
+        if (vkCreateSemaphore(ctx.device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]) != VK_SUCCESS)
+            throw std::runtime_error("failed to create render-finished semaphore!");
     }
 }
 
 // ---- 每帧更新 ----
 
-void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage) {
+void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
+                                   const glm::vec3& cameraPos,
+                                   const glm::vec3& cameraTarget,
+                                   float farPlane) {
     if (swapChain.extent.width == 0 || swapChain.extent.height == 0) return;
 
     UniformBufferObject ubo{};
@@ -264,16 +316,14 @@ void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage) 
     ubo.lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
     ubo.lightSize  = 0.5f;
 
-    // 相机
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
-                           glm::vec3(0.0f, 0.0f, 0.0f),
-                           glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.camPos = cameraPos;
+
+    ubo.view = glm::lookAt(cameraPos, cameraTarget, glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.proj = glm::perspective(glm::radians(45.0f),
                                 swapChain.extent.width / (float)swapChain.extent.height,
-                                0.1f, 10.0f);
+                                0.1f, farPlane);
     ubo.proj[1][1] *= -1;
 
-    // 光空间矩阵（方向光 → 正交投影）
     glm::vec3 lightDirN = glm::normalize(ubo.lightDir);
     glm::vec3 lightPos  = -lightDirN * 6.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
@@ -381,15 +431,18 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(commandBuffer, obj.mesh->indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-            // Set 1: per-material (diffuse texture)
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline.pipelineLayout, 1, 1,
                                     &materialDescriptorSets[obj.textureIndex][currentFrame],
                                     0, nullptr);
 
-            PushConstants pc{ obj.transform };
+            PushConstants pc{};
+            pc.model     = obj.transform;
+            pc.metallic  = obj.metallic;
+            pc.roughness = obj.roughness;
             vkCmdPushConstants(commandBuffer, pipeline.pipelineLayout,
-                               VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(PushConstants), &pc);
 
             vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(obj.mesh->indices.size()), 1, 0, 0, 0);
         }

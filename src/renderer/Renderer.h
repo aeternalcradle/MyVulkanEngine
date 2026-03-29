@@ -7,6 +7,7 @@ class VulkanContext;
 class SwapChain;
 class Pipeline;
 class ShadowMap;
+class IBLResources;
 class TextureManager;
 class MeshLoader;
 class Window;
@@ -15,12 +16,14 @@ struct RenderObject {
     MeshLoader*  mesh;
     uint32_t     textureIndex;
     glm::mat4    transform;
+    float        metallic  = 0.0f;
+    float        roughness = 0.5f;
 };
 
 class Renderer {
 public:
     std::vector<VkBuffer>        uniformBuffers;
-    std::vector<VkDeviceMemory>  uniformBuffersMemory;
+    std::vector<VmaAllocation>   uniformBuffersAlloc;
     std::vector<void*>           uniformBuffersMapped;
 
     VkDescriptorPool             descriptorPool = VK_NULL_HANDLE;
@@ -33,29 +36,35 @@ public:
 
     void init(VulkanContext& ctx, SwapChain& swapChain,
               Pipeline& pipeline, ShadowMap& shadowMap,
+              IBLResources& ibl,
               const std::vector<TextureManager*>& textures);
     void destroy(VulkanContext& ctx);
 
     void drawFrame(VulkanContext& ctx, Window& window,
                    SwapChain& swapChain, Pipeline& pipeline,
                    ShadowMap& shadowMap,
-                   const std::vector<RenderObject>& objects);
+                   const std::vector<RenderObject>& objects,
+                   const glm::vec3& cameraPos,
+                   const glm::vec3& cameraTarget,
+                   float farPlane = 10.0f);
 
 private:
-    // set 0: per-frame (UBO + shadow map) [frameIndex]
     std::vector<VkDescriptorSet> frameDescriptorSets;
-    // set 1: per-material (diffuse texture) [textureIndex][frameIndex]
     std::vector<std::vector<VkDescriptorSet>> materialDescriptorSets;
 
     void createUniformBuffers(VulkanContext& ctx);
     void createDescriptorPool(VulkanContext& ctx, uint32_t numTextures);
-    void createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline, ShadowMap& shadowMap);
+    void createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
+                                   ShadowMap& shadowMap, IBLResources& ibl);
     void createMaterialDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
                                       const std::vector<TextureManager*>& textures);
     void createCommandBuffers(VulkanContext& ctx);
-    void createSyncObjects(VulkanContext& ctx);
+    void createSyncObjects(VulkanContext& ctx, uint32_t swapChainImageCount);
 
-    void updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage);
+    void updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
+                             const glm::vec3& cameraPos,
+                             const glm::vec3& cameraTarget,
+                             float farPlane);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
                              SwapChain& swapChain, Pipeline& pipeline,
                              ShadowMap& shadowMap,

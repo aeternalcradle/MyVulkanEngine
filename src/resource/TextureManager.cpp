@@ -18,22 +18,22 @@ void TextureManager::createSolidColor(VulkanContext& ctx, uint8_t r, uint8_t g, 
     uint8_t pixel[4] = { r, g, b, a };
     VkDeviceSize imageSize = 4;
 
-    VkBuffer       stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VkBuffer      stagingBuffer;
+    VmaAllocation stagingAlloc;
     ctx.createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuffer, stagingBufferMemory);
+                     stagingBuffer, stagingAlloc);
 
     void* data;
-    vkMapMemory(ctx.device, stagingBufferMemory, 0, imageSize, 0, &data);
+    vmaMapMemory(ctx.allocator, stagingAlloc, &data);
     memcpy(data, pixel, sizeof(pixel));
-    vkUnmapMemory(ctx.device, stagingBufferMemory);
+    vmaUnmapMemory(ctx.allocator, stagingAlloc);
 
     Image::createImage(ctx, texWidth, texHeight,
                        VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                       textureImage, textureImageMemory);
+                       textureImage, textureImageAlloc);
 
     Image::transitionImageLayout(ctx, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
                                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -42,8 +42,7 @@ void TextureManager::createSolidColor(VulkanContext& ctx, uint8_t r, uint8_t g, 
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    vkDestroyBuffer(ctx.device, stagingBuffer, nullptr);
-    vkFreeMemory(ctx.device, stagingBufferMemory, nullptr);
+    vmaDestroyBuffer(ctx.allocator, stagingBuffer, stagingAlloc);
 
     createTextureImageView(ctx);
     createTextureSampler(ctx);
@@ -52,8 +51,7 @@ void TextureManager::createSolidColor(VulkanContext& ctx, uint8_t r, uint8_t g, 
 void TextureManager::destroy(VulkanContext& ctx) {
     vkDestroySampler(ctx.device, textureSampler, nullptr);
     vkDestroyImageView(ctx.device, textureImageView, nullptr);
-    vkDestroyImage(ctx.device, textureImage, nullptr);
-    vkFreeMemory(ctx.device, textureImageMemory, nullptr);
+    vmaDestroyImage(ctx.allocator, textureImage, textureImageAlloc);
 }
 
 void TextureManager::createTextureImage(VulkanContext& ctx, const std::string& path) {
@@ -64,23 +62,23 @@ void TextureManager::createTextureImage(VulkanContext& ctx, const std::string& p
     if (!pixels)
         throw std::runtime_error("failed to load texture image!");
 
-    VkBuffer       stagingBuffer;
-    VkDeviceMemory stagingBufferMemory;
+    VkBuffer      stagingBuffer;
+    VmaAllocation stagingAlloc;
     ctx.createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     stagingBuffer, stagingBufferMemory);
+                     stagingBuffer, stagingAlloc);
 
     void* data;
-    vkMapMemory(ctx.device, stagingBufferMemory, 0, imageSize, 0, &data);
+    vmaMapMemory(ctx.allocator, stagingAlloc, &data);
     memcpy(data, pixels, static_cast<size_t>(imageSize));
-    vkUnmapMemory(ctx.device, stagingBufferMemory);
+    vmaUnmapMemory(ctx.allocator, stagingAlloc);
     stbi_image_free(pixels);
 
     Image::createImage(ctx, texWidth, texHeight,
                        VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                       textureImage, textureImageMemory);
+                       textureImage, textureImageAlloc);
 
     Image::transitionImageLayout(ctx, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
                                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -90,8 +88,7 @@ void TextureManager::createTextureImage(VulkanContext& ctx, const std::string& p
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    vkDestroyBuffer(ctx.device, stagingBuffer, nullptr);
-    vkFreeMemory(ctx.device, stagingBufferMemory, nullptr);
+    vmaDestroyBuffer(ctx.allocator, stagingBuffer, stagingAlloc);
 }
 
 void TextureManager::createTextureImageView(VulkanContext& ctx) {
@@ -99,6 +96,7 @@ void TextureManager::createTextureImageView(VulkanContext& ctx) {
                                               VK_FORMAT_R8G8B8A8_SRGB,
                                               VK_IMAGE_ASPECT_COLOR_BIT);
 }
+
 
 void TextureManager::createTextureSampler(VulkanContext& ctx) {
     VkPhysicalDeviceProperties props{};

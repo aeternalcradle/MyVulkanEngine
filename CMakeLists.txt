@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MyVulkanEngine LANGUAGES CXX)
+project(MyVulkanEngine LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
+FetchContent_Declare(
+    vma
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(vma)
+
 # ---------------------------------------------------------------
 # 依赖：Vulkan SDK（已安装，直接 find_package）
 # ---------------------------------------------------------------
@@ -45,12 +53,16 @@ set(SOURCES
     src/core/Window.cpp
     src/rhi/VulkanContext.cpp
     src/rhi/SwapChain.cpp
+    src/rhi/VmaImpl.cpp
     src/rhi/Image.cpp
     src/renderer/Pipeline.cpp
     src/renderer/Renderer.cpp
     src/renderer/ShadowMap.cpp
+    src/renderer/IBLResources.cpp
     src/resource/TextureManager.cpp
     src/resource/MeshLoader.cpp
+    src/tests/BasicScene.cpp
+    src/tests/PBRSpheresScene.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -70,6 +82,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Vulkan::Vulkan
     glfw
     glm::glm
+    VulkanMemoryAllocator
 )
 
 # ---------------------------------------------------------------
