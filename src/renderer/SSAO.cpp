@@ -21,6 +21,13 @@ struct SSAOParams {
     float bias;
 };
 
+// Matches std140 layout in ssao_blur.comp (binding 2)
+struct BlurParams {
+    alignas(8) glm::vec2 screenSize;
+    float depthThreshold;
+    float _pad;
+};
+
 // ================================================================
 //  Public interface
 // ================================================================
@@ -37,6 +44,7 @@ void SSAO::create(VulkanContext& ctx, Pipeline& pipeline,
     createNoiseTexture(ctx);
     createKernelUBO(ctx);
     createParamsUBO(ctx);
+    createBlurParamsUBO(ctx);
     createSamplers(ctx);
     createComputePipelines(ctx);
     allocateDescriptorSets(ctx);
@@ -61,6 +69,9 @@ void SSAO::destroy(VulkanContext& ctx) {
     vkDestroySampler(ctx.device, aoSampler, nullptr);
     vkDestroySampler(ctx.device, noiseSampler, nullptr);
     vkDestroySampler(ctx.device, nearestSampler, nullptr);
+
+    vmaUnmapMemory(ctx.allocator, blurParamsMem);
+    vmaDestroyBuffer(ctx.allocator, blurParamsBuffer, blurParamsMem);
 
     vmaUnmapMemory(ctx.allocator, paramsMem);
     vmaDestroyBuffer(ctx.allocator, paramsBuffer, paramsMem);
@@ -91,6 +102,12 @@ void SSAO::updateParams(const glm::mat4& proj, const glm::vec2& screenSize) {
     p.radius     = DEFAULT_RADIUS;
     p.bias       = DEFAULT_BIAS;
     memcpy(paramsMapped, &p, sizeof(p));
+
+    BlurParams bp{};
+    bp.screenSize     = screenSize;
+    bp.depthThreshold = 0.05f;
+    bp._pad           = 0.0f;
+    memcpy(blurParamsMapped, &bp, sizeof(bp));
 }
 
 // ================================================================
@@ -532,6 +549,15 @@ void SSAO::createParamsUBO(VulkanContext& ctx) {
     vmaMapMemory(ctx.allocator, paramsMem, &paramsMapped);
 }
 
+void SSAO::createBlurParamsUBO(VulkanContext& ctx) {
+    VkDeviceSize bufSize = sizeof(BlurParams);
+    ctx.createBuffer(bufSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     blurParamsBuffer, blurParamsMem);
+    vmaMapMemory(ctx.allocator, blurParamsMem, &blurParamsMapped);
+}
+
 // ================================================================
 //  Samplers
 // ================================================================
@@ -644,17 +670,19 @@ void SSAO::createComputePipelines(VulkanContext& ctx) {
 
     // ---- Blur compute ----
     {
-        VkDescriptorSetLayoutBinding bindings[3]{};
+        VkDescriptorSetLayoutBinding bindings[4]{};
         bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
-        bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+        bindings[2] = {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                       VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
         VkDescriptorSetLayoutCreateInfo layoutCI{};
         layoutCI.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutCI.bindingCount = 3;
+        layoutCI.bindingCount = 4;
         layoutCI.pBindings    = bindings;
         if (vkCreateDescriptorSetLayout(ctx.device, &layoutCI, nullptr,
                                         &blurSetLayout) != VK_SUCCESS)
@@ -686,12 +714,13 @@ void SSAO::createComputePipelines(VulkanContext& ctx) {
 
         VkDescriptorPoolSize poolSizes[] = {
             {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2},
+            {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1},
             {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          1}
         };
         VkDescriptorPoolCreateInfo poolCI{};
         poolCI.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         poolCI.maxSets       = 1;
-        poolCI.poolSizeCount = 2;
+        poolCI.poolSizeCount = 3;
         poolCI.pPoolSizes    = poolSizes;
         if (vkCreateDescriptorPool(ctx.device, &poolCI, nullptr,
                                    &blurPool) != VK_SUCCESS)
@@ -901,11 +930,16 @@ void SSAO::writeDescriptorSets(VulkanContext& ctx) {
     blurDepthInfo.imageView   = depthView;
     blurDepthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
+    VkDescriptorBufferInfo blurParamsInfo{};
+    blurParamsInfo.buffer = blurParamsBuffer;
+    blurParamsInfo.offset = 0;
+    blurParamsInfo.range  = sizeof(BlurParams);
+
     VkDescriptorImageInfo blurredAOStorageInfo{};
     blurredAOStorageInfo.imageView   = blurredAOView;
     blurredAOStorageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    std::array<VkWriteDescriptorSet, 3> blurWrites{};
+    std::array<VkWriteDescriptorSet, 4> blurWrites{};
     blurWrites[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     blurWrites[0].dstSet          = blurSet;
     blurWrites[0].dstBinding      = 0;
@@ -923,9 +957,16 @@ void SSAO::writeDescriptorSets(VulkanContext& ctx) {
     blurWrites[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     blurWrites[2].dstSet          = blurSet;
     blurWrites[2].dstBinding      = 2;
-    blurWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    blurWrites[2].descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     blurWrites[2].descriptorCount = 1;
-    blurWrites[2].pImageInfo      = &blurredAOStorageInfo;
+    blurWrites[2].pBufferInfo     = &blurParamsInfo;
+
+    blurWrites[3].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    blurWrites[3].dstSet          = blurSet;
+    blurWrites[3].dstBinding      = 3;
+    blurWrites[3].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    blurWrites[3].descriptorCount = 1;
+    blurWrites[3].pImageInfo      = &blurredAOStorageInfo;
 
     vkUpdateDescriptorSets(ctx.device,
                            static_cast<uint32_t>(blurWrites.size()),

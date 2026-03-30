@@ -7,6 +7,7 @@
 #include "renderer/Renderer.h"
 #include "renderer/ShadowMap.h"
 #include "renderer/IBLResources.h"
+#include "renderer/SSAO.h"
 #include "tests/Scene.h"
 
 #include <memory>
@@ -23,6 +24,7 @@ private:
     Pipeline       pipeline;
     ShadowMap      shadowMap;
     IBLResources   iblResources;
+    SSAO           ssao;
     Renderer       renderer;
 
     std::unique_ptr<Scene> scene;

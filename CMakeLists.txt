@@ -59,6 +59,7 @@ set(SOURCES
     src/renderer/Renderer.cpp
     src/renderer/ShadowMap.cpp
     src/renderer/IBLResources.cpp
+    src/renderer/SSAO.cpp
     src/resource/TextureManager.cpp
     src/resource/MeshLoader.cpp
     src/tests/BasicScene.cpp

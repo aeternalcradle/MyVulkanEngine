@@ -71,6 +71,11 @@ private:
     VmaAllocation paramsMem    = VK_NULL_HANDLE;
     void*          paramsMapped = nullptr;
 
+    // Blur params UBO (screenSize, depthThreshold)
+    VkBuffer       blurParamsBuffer = VK_NULL_HANDLE;
+    VmaAllocation blurParamsMem    = VK_NULL_HANDLE;
+    void*          blurParamsMapped = nullptr;
+
     // Samplers
     VkSampler      nearestSampler = VK_NULL_HANDLE;
     VkSampler      noiseSampler   = VK_NULL_HANDLE;
@@ -95,6 +100,7 @@ private:
     void createNoiseTexture(VulkanContext& ctx);
     void createKernelUBO(VulkanContext& ctx);
     void createParamsUBO(VulkanContext& ctx);
+    void createBlurParamsUBO(VulkanContext& ctx);
     void createSamplers(VulkanContext& ctx);
     void createComputePipelines(VulkanContext& ctx);
     void allocateDescriptorSets(VulkanContext& ctx);

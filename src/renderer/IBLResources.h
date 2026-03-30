@@ -27,6 +27,10 @@ public:
     VmaAllocation  brdfLutMem       = VK_NULL_HANDLE;
     VkImageView    brdfLutView      = VK_NULL_HANDLE;
 
+    VkImage        envCubeImage     = VK_NULL_HANDLE;
+    VmaAllocation  envCubeMem       = VK_NULL_HANDLE;
+    VkImageView    envCubeView      = VK_NULL_HANDLE;
+
     VkSampler      cubemapSampler   = VK_NULL_HANDLE;
     VkSampler      brdfLutSampler   = VK_NULL_HANDLE;
 

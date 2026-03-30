@@ -449,23 +449,18 @@ void IBLResources::computeBRDFLUT(VulkanContext& ctx) {
 void IBLResources::create(VulkanContext& ctx, const std::string& exrPath) {
     createSamplers(ctx);
 
-    VkImage        envCube     = VK_NULL_HANDLE;
-    VmaAllocation  envCubeMem  = VK_NULL_HANDLE;
-    VkImageView    envCubeView = VK_NULL_HANDLE;
-
-    loadEquirectAndConvert(ctx, exrPath, envCube, envCubeMem, envCubeView);
+    loadEquirectAndConvert(ctx, exrPath, envCubeImage, envCubeMem, envCubeView);
     computeIrradiance(ctx, envCubeView);
     computePrefilter(ctx, envCubeView);
     computeBRDFLUT(ctx);
-
-    // Free intermediate env cubemap
-    vkDestroyImageView(ctx.device, envCubeView, nullptr);
-    vmaDestroyImage(ctx.allocator, envCube, envCubeMem);
 }
 
 void IBLResources::destroy(VulkanContext& ctx) {
     vkDestroySampler(ctx.device, cubemapSampler, nullptr);
     vkDestroySampler(ctx.device, brdfLutSampler, nullptr);
+
+    vkDestroyImageView(ctx.device, envCubeView, nullptr);
+    vmaDestroyImage(ctx.allocator, envCubeImage, envCubeMem);
 
     vkDestroyImageView(ctx.device, irradianceView, nullptr);
     vmaDestroyImage(ctx.allocator, irradianceImage, irradianceMem);

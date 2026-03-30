@@ -8,6 +8,7 @@ class SwapChain;
 class Pipeline;
 class ShadowMap;
 class IBLResources;
+class SSAO;
 class TextureManager;
 class MeshLoader;
 class Window;
@@ -36,13 +37,14 @@ public:
 
     void init(VulkanContext& ctx, SwapChain& swapChain,
               Pipeline& pipeline, ShadowMap& shadowMap,
-              IBLResources& ibl,
+              IBLResources& ibl, SSAO& ssao,
               const std::vector<TextureManager*>& textures);
     void destroy(VulkanContext& ctx);
 
     void drawFrame(VulkanContext& ctx, Window& window,
                    SwapChain& swapChain, Pipeline& pipeline,
                    ShadowMap& shadowMap,
+                   SSAO& ssao,
                    const std::vector<RenderObject>& objects,
                    const glm::vec3& cameraPos,
                    const glm::vec3& cameraTarget,
@@ -55,7 +57,9 @@ private:
     void createUniformBuffers(VulkanContext& ctx);
     void createDescriptorPool(VulkanContext& ctx, uint32_t numTextures);
     void createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
-                                   ShadowMap& shadowMap, IBLResources& ibl);
+                                   ShadowMap& shadowMap, IBLResources& ibl,
+                                   SSAO& ssao);
+    void updateAODescriptorSets(VulkanContext& ctx, SSAO& ssao);
     void createMaterialDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
                                       const std::vector<TextureManager*>& textures);
     void createCommandBuffers(VulkanContext& ctx);
@@ -64,9 +68,11 @@ private:
     void updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
                              const glm::vec3& cameraPos,
                              const glm::vec3& cameraTarget,
-                             float farPlane);
+                             float farPlane,
+                             SSAO& ssao);
     void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
                              SwapChain& swapChain, Pipeline& pipeline,
                              ShadowMap& shadowMap,
+                             SSAO& ssao,
                              const std::vector<RenderObject>& objects);
 };

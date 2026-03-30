@@ -16,6 +16,7 @@ layout(set = 0, binding = 1) uniform sampler2D shadowMap;
 layout(set = 0, binding = 2) uniform samplerCube irradianceMap;
 layout(set = 0, binding = 3) uniform samplerCube prefilterMap;
 layout(set = 0, binding = 4) uniform sampler2D   brdfLUT;
+layout(set = 0, binding = 5) uniform sampler2D   ssaoMap;
 layout(set = 1, binding = 0) uniform sampler2D texSampler;
 
 layout(push_constant) uniform PushConstants {
@@ -219,7 +220,9 @@ void main() {
     vec2 brdf = texture(brdfLUT, vec2(NdotV, roughness)).rg;
     vec3 specularIBL = prefilteredColor * (kS_ibl * brdf.x + brdf.y);
 
-    vec3 ambientColor = diffuseIBL + specularIBL;
+    vec2 aoUV = gl_FragCoord.xy / vec2(textureSize(ssaoMap, 0));
+    float ao = texture(ssaoMap, aoUV).r;
+    vec3 ambientColor = (diffuseIBL + specularIBL) * ao;
 
     vec3 color = ambientColor + Lo;
 

@@ -20,10 +20,11 @@ void Application::init() {
     swapChain.createFramebuffers(ctx, pipeline.renderPass);
     shadowMap.create(ctx, pipeline.frameSetLayout);
     iblResources.create(ctx, "assets/skybox/venice_sunset_4k.exr");
+    ssao.create(ctx, pipeline, swapChain.extent.width, swapChain.extent.height);
 
     scene->init(ctx);
 
-    renderer.init(ctx, swapChain, pipeline, shadowMap, iblResources,
+    renderer.init(ctx, swapChain, pipeline, shadowMap, iblResources, ssao,
                   scene->getTextures());
 }
 
@@ -39,7 +40,7 @@ void Application::mainLoop() {
 
         auto objects = scene->update(time);
 
-        renderer.drawFrame(ctx, window, swapChain, pipeline, shadowMap,
+        renderer.drawFrame(ctx, window, swapChain, pipeline, shadowMap, ssao,
                            objects, setup.cameraPos, setup.cameraTarget,
                            setup.farPlane);
     }
@@ -48,6 +49,7 @@ void Application::mainLoop() {
 
 void Application::cleanup() {
     renderer.destroy(ctx);
+    ssao.destroy(ctx);
     scene->cleanup(ctx);
     iblResources.destroy(ctx);
     shadowMap.destroy(ctx);

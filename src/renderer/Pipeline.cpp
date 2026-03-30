@@ -10,9 +10,12 @@ void Pipeline::create(VulkanContext& ctx, SwapChain& swapChain) {
     createRenderPass(ctx, swapChain.imageFormat);
     createDescriptorSetLayouts(ctx);
     createGraphicsPipeline(ctx, swapChain.extent);
+    createSkyboxPipeline(ctx);
 }
 
 void Pipeline::destroy(VulkanContext& ctx) {
+    vkDestroyPipeline(ctx.device, skyboxPipeline, nullptr);
+    vkDestroyPipelineLayout(ctx.device, skyboxPipelineLayout, nullptr);
     vkDestroyPipeline(ctx.device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(ctx.device, pipelineLayout, nullptr);
     vkDestroyRenderPass(ctx.device, renderPass, nullptr);
@@ -104,8 +107,21 @@ void Pipeline::createDescriptorSetLayouts(VulkanContext& ctx) {
     brdfLutBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     brdfLutBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    std::array<VkDescriptorSetLayoutBinding, 5> frameBindings = {
-        uboBinding, shadowBinding, irradianceBinding, prefilterBinding, brdfLutBinding
+    VkDescriptorSetLayoutBinding ssaoBinding{};
+    ssaoBinding.binding            = 5;
+    ssaoBinding.descriptorCount    = 1;
+    ssaoBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    ssaoBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutBinding envMapBinding{};
+    envMapBinding.binding            = 6;
+    envMapBinding.descriptorCount    = 1;
+    envMapBinding.descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    envMapBinding.stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    std::array<VkDescriptorSetLayoutBinding, 7> frameBindings = {
+        uboBinding, shadowBinding, irradianceBinding, prefilterBinding,
+        brdfLutBinding, ssaoBinding, envMapBinding
     };
     VkDescriptorSetLayoutCreateInfo frameLayoutInfo{};
     frameLayoutInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -239,6 +255,101 @@ void Pipeline::createGraphicsPipeline(VulkanContext& ctx, VkExtent2D swapChainEx
 
     if (vkCreateGraphicsPipelines(ctx.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS)
         throw std::runtime_error("failed to create graphics pipeline!");
+
+    vkDestroyShaderModule(ctx.device, fragModule, nullptr);
+    vkDestroyShaderModule(ctx.device, vertModule, nullptr);
+}
+
+void Pipeline::createSkyboxPipeline(VulkanContext& ctx) {
+    auto vertCode = readFile("shaders/skybox_vert.spv");
+    auto fragCode = readFile("shaders/skybox_frag.spv");
+    VkShaderModule vertModule = createShaderModule(ctx, vertCode);
+    VkShaderModule fragModule = createShaderModule(ctx, fragCode);
+
+    VkPipelineShaderStageCreateInfo vertStage{};
+    vertStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertStage.stage  = VK_SHADER_STAGE_VERTEX_BIT;
+    vertStage.module = vertModule;
+    vertStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo fragStage{};
+    fragStage.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragStage.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragStage.module = fragModule;
+    fragStage.pName  = "main";
+
+    VkPipelineShaderStageCreateInfo stages[] = { vertStage, fragStage };
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount  = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth   = 1.0f;
+    rasterizer.cullMode    = VK_CULL_MODE_FRONT_BIT;
+    rasterizer.frontFace   = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable  = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments    = &colorBlendAttachment;
+
+    std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates    = dynamicStates.data();
+
+    VkPipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layoutInfo.setLayoutCount = 1;
+    layoutInfo.pSetLayouts    = &frameSetLayout;
+
+    if (vkCreatePipelineLayout(ctx.device, &layoutInfo, nullptr, &skyboxPipelineLayout) != VK_SUCCESS)
+        throw std::runtime_error("failed to create skybox pipeline layout!");
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount          = 2;
+    pipelineInfo.pStages             = stages;
+    pipelineInfo.pVertexInputState   = &vertexInput;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState      = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState   = &multisampling;
+    pipelineInfo.pDepthStencilState  = &depthStencil;
+    pipelineInfo.pColorBlendState    = &colorBlending;
+    pipelineInfo.pDynamicState       = &dynamicState;
+    pipelineInfo.layout              = skyboxPipelineLayout;
+    pipelineInfo.renderPass          = renderPass;
+    pipelineInfo.subpass             = 0;
+
+    if (vkCreateGraphicsPipelines(ctx.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &skyboxPipeline) != VK_SUCCESS)
+        throw std::runtime_error("failed to create skybox pipeline!");
 
     vkDestroyShaderModule(ctx.device, fragModule, nullptr);
     vkDestroyShaderModule(ctx.device, vertModule, nullptr);

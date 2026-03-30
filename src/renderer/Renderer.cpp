@@ -4,6 +4,7 @@
 #include "renderer/Pipeline.h"
 #include "renderer/ShadowMap.h"
 #include "renderer/IBLResources.h"
+#include "renderer/SSAO.h"
 #include "resource/TextureManager.h"
 #include "resource/MeshLoader.h"
 #include "core/Window.h"
@@ -14,12 +15,12 @@
 
 void Renderer::init(VulkanContext& ctx, SwapChain& swapChain,
                     Pipeline& pipeline, ShadowMap& shadowMap,
-                    IBLResources& ibl,
+                    IBLResources& ibl, SSAO& ssao,
                     const std::vector<TextureManager*>& textures)
 {
     createUniformBuffers(ctx);
     createDescriptorPool(ctx, static_cast<uint32_t>(textures.size()));
-    createFrameDescriptorSets(ctx, pipeline, shadowMap, ibl);
+    createFrameDescriptorSets(ctx, pipeline, shadowMap, ibl, ssao);
     createMaterialDescriptorSets(ctx, pipeline, textures);
     createCommandBuffers(ctx);
     uint32_t sci = static_cast<uint32_t>(swapChain.images.size());
@@ -41,6 +42,7 @@ void Renderer::destroy(VulkanContext& ctx) {
 void Renderer::drawFrame(VulkanContext& ctx, Window& window,
                          SwapChain& swapChain, Pipeline& pipeline,
                          ShadowMap& shadowMap,
+                         SSAO& ssao,
                          const std::vector<RenderObject>& objects,
                          const glm::vec3& cameraPos,
                          const glm::vec3& cameraTarget,
@@ -57,17 +59,19 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
         swapChain.cleanup(ctx);
         swapChain.create(ctx, window.getHandle());
         swapChain.createFramebuffers(ctx, pipeline.renderPass);
+        ssao.resize(ctx, swapChain.extent.width, swapChain.extent.height);
+        updateAODescriptorSets(ctx, ssao);
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("failed to acquire swap chain image!");
     }
 
-    updateUniformBuffer(swapChain, currentFrame, cameraPos, cameraTarget, farPlane);
+    updateUniformBuffer(swapChain, currentFrame, cameraPos, cameraTarget, farPlane, ssao);
 
     vkResetFences(ctx.device, 1, &inFlightFences[currentFrame]);
     vkResetCommandBuffer(commandBuffers[currentFrame], 0);
     recordCommandBuffer(commandBuffers[currentFrame], imageIndex,
-                        swapChain, pipeline, shadowMap, objects);
+                        swapChain, pipeline, shadowMap, ssao, objects);
 
     VkSemaphore          waitSemaphores[]   = { imageAvailableSemaphores[currentFrame] };
     VkPipelineStageFlags waitStages[]       = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
@@ -102,6 +106,8 @@ void Renderer::drawFrame(VulkanContext& ctx, Window& window,
         swapChain.cleanup(ctx);
         swapChain.create(ctx, window.getHandle());
         swapChain.createFramebuffers(ctx, pipeline.renderPass);
+        ssao.resize(ctx, swapChain.extent.width, swapChain.extent.height);
+        updateAODescriptorSets(ctx, ssao);
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("failed to present swap chain image!");
     }
@@ -130,11 +136,11 @@ void Renderer::createDescriptorPool(VulkanContext& ctx, uint32_t numTextures) {
     uint32_t materialSets = numTextures * frameSets;
     uint32_t totalSets    = frameSets + materialSets;
 
-    // shadow(1) + irradiance(1) + prefilter(1) + brdfLut(1) = 4 samplers per frame set
+    // shadow(1) + irradiance(1) + prefilter(1) + brdfLut(1) + ssao(1) + envMap(1) = 6 samplers per frame set
     // + 1 sampler per material set
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0] = { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         frameSets };
-    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * frameSets + materialSets };
+    poolSizes[1] = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * frameSets + materialSets };
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -147,7 +153,8 @@ void Renderer::createDescriptorPool(VulkanContext& ctx, uint32_t numTextures) {
 }
 
 void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
-                                         ShadowMap& shadowMap, IBLResources& ibl)
+                                         ShadowMap& shadowMap, IBLResources& ibl,
+                                         SSAO& ssao)
 {
     std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, pipeline.frameSetLayout);
 
@@ -187,7 +194,17 @@ void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
         brdfLutInfo.imageView   = ibl.brdfLutView;
         brdfLutInfo.sampler     = ibl.brdfLutSampler;
 
-        std::array<VkWriteDescriptorSet, 5> writes{};
+        VkDescriptorImageInfo ssaoInfo{};
+        ssaoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ssaoInfo.imageView   = ssao.blurredAOView;
+        ssaoInfo.sampler     = ssao.aoSampler;
+
+        VkDescriptorImageInfo envMapInfo{};
+        envMapInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        envMapInfo.imageView   = ibl.envCubeView;
+        envMapInfo.sampler     = ibl.cubemapSampler;
+
+        std::array<VkWriteDescriptorSet, 7> writes{};
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet          = frameDescriptorSets[i];
         writes[0].dstBinding      = 0;
@@ -223,7 +240,40 @@ void Renderer::createFrameDescriptorSets(VulkanContext& ctx, Pipeline& pipeline,
         writes[4].descriptorCount = 1;
         writes[4].pImageInfo      = &brdfLutInfo;
 
+        writes[5].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[5].dstSet          = frameDescriptorSets[i];
+        writes[5].dstBinding      = 5;
+        writes[5].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[5].descriptorCount = 1;
+        writes[5].pImageInfo      = &ssaoInfo;
+
+        writes[6].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[6].dstSet          = frameDescriptorSets[i];
+        writes[6].dstBinding      = 6;
+        writes[6].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[6].descriptorCount = 1;
+        writes[6].pImageInfo      = &envMapInfo;
+
         vkUpdateDescriptorSets(ctx.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+}
+
+void Renderer::updateAODescriptorSets(VulkanContext& ctx, SSAO& ssao) {
+    for (size_t i = 0; i < frameDescriptorSets.size(); ++i) {
+        VkDescriptorImageInfo ssaoInfo{};
+        ssaoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ssaoInfo.imageView   = ssao.blurredAOView;
+        ssaoInfo.sampler     = ssao.aoSampler;
+
+        VkWriteDescriptorSet write{};
+        write.sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet          = frameDescriptorSets[i];
+        write.dstBinding      = 5;
+        write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo      = &ssaoInfo;
+
+        vkUpdateDescriptorSets(ctx.device, 1, &write, 0, nullptr);
     }
 }
 
@@ -306,7 +356,8 @@ void Renderer::createSyncObjects(VulkanContext& ctx, uint32_t swapChainImageCoun
 void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
                                    const glm::vec3& cameraPos,
                                    const glm::vec3& cameraTarget,
-                                   float farPlane) {
+                                   float farPlane,
+                                   SSAO& ssao) {
     if (swapChain.extent.width == 0 || swapChain.extent.height == 0) return;
 
     UniformBufferObject ubo{};
@@ -323,6 +374,9 @@ void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
                                 swapChain.extent.width / (float)swapChain.extent.height,
                                 0.1f, farPlane);
     ubo.proj[1][1] *= -1;
+    ssao.updateParams(ubo.proj, glm::vec2(
+        static_cast<float>(swapChain.extent.width),
+        static_cast<float>(swapChain.extent.height)));
 
     glm::vec3 lightDirN = glm::normalize(ubo.lightDir);
     glm::vec3 lightPos  = -lightDirN * 6.0f;
@@ -339,6 +393,7 @@ void Renderer::updateUniformBuffer(SwapChain& swapChain, uint32_t currentImage,
 void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex,
                                    SwapChain& swapChain, Pipeline& pipeline,
                                    ShadowMap& shadowMap,
+                                   SSAO& ssao,
                                    const std::vector<RenderObject>& objects)
 {
     VkCommandBufferBeginInfo beginInfo{};
@@ -392,6 +447,10 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
         vkCmdEndRenderPass(commandBuffer);
     }
+
+    // ======== Depth+Normal Pre-Pass + SSAO Compute ========
+    ssao.recordPrePass(commandBuffer, frameDescriptorSets[currentFrame], objects);
+    ssao.recordCompute(commandBuffer);
 
     // ======== Main Pass ========
     {
@@ -447,9 +506,17 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
             vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(obj.mesh->indices.size()), 1, 0, 0, 0);
         }
 
+        // ---- Skybox (drawn last, depth test LEQUAL, no depth write) ----
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.skyboxPipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline.skyboxPipelineLayout, 0, 1,
+                                &frameDescriptorSets[currentFrame], 0, nullptr);
+        vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+
         vkCmdEndRenderPass(commandBuffer);
     }
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
         throw std::runtime_error("failed to record command buffer!");
+    
 }

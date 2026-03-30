@@ -15,6 +15,8 @@ public:
     VkDescriptorSetLayout materialSetLayout   = VK_NULL_HANDLE;   // set 1: diffuse texture
     VkPipelineLayout      pipelineLayout      = VK_NULL_HANDLE;
     VkPipeline            graphicsPipeline    = VK_NULL_HANDLE;
+    VkPipelineLayout      skyboxPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline            skyboxPipeline       = VK_NULL_HANDLE;
 
     void create(VulkanContext& ctx, SwapChain& swapChain);
     void destroy(VulkanContext& ctx);
@@ -26,4 +28,5 @@ private:
     void createRenderPass(VulkanContext& ctx, VkFormat swapChainImageFormat);
     void createDescriptorSetLayouts(VulkanContext& ctx);
     void createGraphicsPipeline(VulkanContext& ctx, VkExtent2D swapChainExtent);
+    void createSkyboxPipeline(VulkanContext& ctx);
 };
