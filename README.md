@@ -4,7 +4,23 @@
 
 ## 效果图
 
-![渲染效果](resource/PCFF.png)
+### 阴影（PCSS）
+
+![PCSS](resource/PCFF.png)
+
+### SSAO
+
+![SSAO 对比](resource/ssao_diff.png)
+
+### SSR
+
+![SSR 效果 1](resource/ssr_dif1.png)
+
+![SSR 效果 2](resource/ssr_dif2.png)
+
+### IBL
+
+![IBL 效果](resource/ibl效果图.png)
 
 ## 功能概览
 
@@ -51,6 +67,3 @@ MyVulkanEngine/
 └── README.md
 ```
 
-## 许可证
-
-若仓库根目录未单独提供许可证文件，默认以仓库所有者的声明为准；引用第三方库（GLFW、GLM、stb、tinyobjloader 等）请遵循其各自许可证。
