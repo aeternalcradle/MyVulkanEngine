@@ -7,7 +7,10 @@
 #include <memory>
 
 int main() {
-    Application app(std::make_unique<PBRSpheresScene>());
+    // 在这里切换启动渲染方式：RenderMode::Forward 或 RenderMode::DeferredMVP
+    RenderMode startupMode = RenderMode::DeferredMVP;
+
+    Application app(std::make_unique<PBRSpheresScene>(), startupMode);
     try {
         app.run();
     } catch (const std::exception& e) {

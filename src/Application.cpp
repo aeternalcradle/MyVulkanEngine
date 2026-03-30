@@ -3,8 +3,8 @@
 
 #include <chrono>
 
-Application::Application(std::unique_ptr<Scene> s)
-    : scene(std::move(s)) {}
+Application::Application(std::unique_ptr<Scene> s, RenderMode mode)
+    : startupMode(mode), scene(std::move(s)) {}
 
 void Application::run() {
     init();
@@ -26,6 +26,7 @@ void Application::init() {
 
     renderer.init(ctx, swapChain, pipeline, shadowMap, iblResources, ssao,
                   scene->getTextures());
+    renderer.setRenderMode(startupMode);
 }
 
 void Application::mainLoop() {

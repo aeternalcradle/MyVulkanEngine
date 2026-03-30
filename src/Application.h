@@ -14,7 +14,8 @@
 
 class Application {
 public:
-    explicit Application(std::unique_ptr<Scene> scene);
+    explicit Application(std::unique_ptr<Scene> scene,
+                         RenderMode startupMode = RenderMode::Forward);
     void run();
 
 private:
@@ -26,6 +27,7 @@ private:
     IBLResources   iblResources;
     SSAO           ssao;
     Renderer       renderer;
+    RenderMode     startupMode;
 
     std::unique_ptr<Scene> scene;
 

@@ -91,7 +91,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # ---------------------------------------------------------------
 include(cmake/ShaderCompile.cmake)
 
-file(GLOB GLSL_FILES
+file(GLOB GLSL_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/shaders/*.vert"
     "${CMAKE_SOURCE_DIR}/shaders/*.frag"
     "${CMAKE_SOURCE_DIR}/shaders/*.comp"
