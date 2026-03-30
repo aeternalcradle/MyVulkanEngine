@@ -21,22 +21,31 @@ SceneSetup BasicScene::getSetup() const {
 }
 
 std::vector<RenderObject> BasicScene::update(float time) {
-    glm::mat4 model1 = glm::rotate(glm::mat4(1.0f),
-                                    time * glm::radians(90.0f),
-                                    glm::vec3(0.0f, 0.0f, 1.0f));
+    // glm::mat4 model1 = glm::rotate(glm::mat4(1.0f),
+    //                                 time * glm::radians(90.0f),
+    //                                 glm::vec3(0.0f, 0.0f, 1.0f));
 
-    glm::mat4 model2 = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 0.0f, 0.0f))
-                      * glm::rotate(glm::mat4(1.0f),
-                                    -time * glm::radians(90.0f),
-                                    glm::vec3(0.0f, 0.0f, 1.0f));
+    // glm::mat4 model2 = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 0.0f, 0.0f))
+    //                   * glm::rotate(glm::mat4(1.0f),
+    //                                 -time * glm::radians(90.0f),
+    //                                 glm::vec3(0.0f, 0.0f, 1.0f));
 
-    glm::mat4 model3 = glm::translate(glm::mat4(1.0f), glm::vec3(-2.0f, 0.0f, 0.0f))
-                      * glm::rotate(glm::mat4(1.0f),
-                                    -time * glm::radians(90.0f),
-                                    glm::vec3(0.0f, 0.0f, 1.0f));
+    // glm::mat4 model3 = glm::translate(glm::mat4(1.0f), glm::vec3(-2.0f, 0.0f, 0.0f))
+    //                   * glm::rotate(glm::mat4(1.0f),
+    //                                 -time * glm::radians(90.0f),
+    //                                 glm::vec3(0.0f, 0.0f, 1.0f));
+
+    (void)time;
+
+    glm::mat4 model1 = glm::mat4(1.0f);
+    glm::mat4 model2 = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 0.0f, 0.0f));
+    glm::mat4 model3 = glm::translate(glm::mat4(1.0f), glm::vec3(-2.0f, 0.0f, 0.0f));
+
 
     glm::mat4 groundModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -0.5f));
 
+
+    
     return {
         { &groundPlane, 2, groundModel, 0.0f, 0.8f },
         { &mesh,  0, model1,  0.0f, 0.5f },

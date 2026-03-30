@@ -43,9 +43,9 @@ const float ORTHO_WIDTH = 16.0;
 const float NEAR_PLANE  = 0.1;
 const float BIAS        = 0.002;
 const int SSR_MAX_STEPS = 48;
-const float SSR_STEP_SIZE = 0.25;
+const float SSR_STEP_SIZE = 0.10;
 const float SSR_MAX_DISTANCE = 24.0;
-const float SSR_THICKNESS = 0.25;
+const float SSR_THICKNESS = 0.08;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness * roughness;
@@ -193,15 +193,18 @@ bool traceSSR(vec3 worldPos, vec3 worldNormal, vec3 viewDir,
 
         vec4 gPos = texture(gPosition, sampleUV);
         if (gPos.a > 0.5) {
+            vec3 sceneN = normalize(texture(gNormalRoughness, sampleUV).xyz);
+            float facing = dot(sceneN, -reflDir);
+
             float sceneViewZ  = (ubo.view * vec4(gPos.xyz, 1.0)).z;
             float sampleViewZ = (ubo.view * vec4(sampleWorldPos, 1.0)).z;
-            float dz = abs(sceneViewZ - sampleViewZ);
+            float dz = sceneViewZ - sampleViewZ;
 
-            if (dz < SSR_THICKNESS) {
+            if (facing > 0.1 && dz > 0.0 && dz < SSR_THICKNESS) {
                 float edgeFade = 1.0 - clamp(max(abs(sampleUV.x - 0.5), abs(sampleUV.y - 0.5)) * 2.0, 0.0, 1.0);
                 float stepFade = 1.0 - float(i) / float(SSR_MAX_STEPS);
                 hitUV = sampleUV;
-                hitConfidence = edgeFade * stepFade;
+                hitConfidence = edgeFade * stepFade * clamp(facing, 0.0, 1.0);
                 return true;
             }
         }
@@ -268,6 +271,13 @@ void main() {
     float ao = texture(ssaoMap, uv).r;
     vec3 ambient = (diffuseIBL + specularIBL) * ao;
     vec3 color = ambient + Lo;
+
+    if (hit) {
+        vec3 hitAlbedo = texture(gAlbedoMetallic, hitUV).rgb;
+        float specularStrength = max(max(kS.r, kS.g), kS.b);
+        float ssrWeight = clamp(hitConfidence * (1.0 - roughness) * specularStrength, 0.0, 0.6);
+        color += hitAlbedo * ssrWeight;
+    }
 
     color = ACESFitted(color);
 

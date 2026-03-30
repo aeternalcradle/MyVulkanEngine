@@ -8,7 +8,7 @@
 
 int main() {
     // 在这里切换启动渲染方式：RenderMode::Forward 或 RenderMode::DeferredMVP
-    RenderMode startupMode = RenderMode::DeferredMVP;
+    RenderMode startupMode = RenderMode::Forward;
 
     Application app(std::make_unique<PBRSpheresScene>(), startupMode);
     try {

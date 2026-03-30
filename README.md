@@ -6,8 +6,6 @@
 
 ![渲染效果](resource/PCFF.png)
 
-> 可将更多截图放在 [`resource/`](resource/) 目录下，并在本节补充引用，例如：`![说明](resource/your_screenshot.png)`。
-
 ## 功能概览
 
 - **RHI**：实例、设备、队列、交换链、同步对象
