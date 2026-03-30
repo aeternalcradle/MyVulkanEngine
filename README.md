@@ -14,9 +14,11 @@
 
 ### SSR
 
-![SSR 效果 1](resource/ssr_dif1.png)
+对比说明：1 为未开启 SSR，2 为开启 SSR。
 
-![SSR 效果 2](resource/ssr_dif2.png)
+![SSR 效果 1（无 SSR）](resource/ssr_dif1.png)
+
+![SSR 效果 2（有 SSR）](resource/ssr_dif2.png)
 
 ### IBL
 
